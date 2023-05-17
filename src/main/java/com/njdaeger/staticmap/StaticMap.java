@@ -5,6 +5,7 @@ import org.dynmap.*;
 import org.dynmap.hdmap.HDMap;
 import org.dynmap.hdmap.HDPerspective;
 import org.dynmap.hdmap.IsoHDPerspective;
+import org.dynmap.utils.LRULinkedHashMap;
 import org.dynmap.utils.Matrix3D;
 import org.dynmap.utils.Vector3D;
 
@@ -13,7 +14,6 @@ import java.awt.image.BufferedImage;
 import java.io.File;
 import java.io.IOException;
 import java.util.*;
-import java.util.stream.Collectors;
 
 public class StaticMap extends HDMap {
 
@@ -23,59 +23,64 @@ public class StaticMap extends HDMap {
     //the center tile should be named 0_0.png
     //the tile to the right of the center tile should be named 1_0.png, top right 1_1.png, etc
     private final File tileDirectory;
-    private final Map<String, BufferedImage> tiles;
+    private final Map<String, BufferedImage> tileCache;
+    private final Map<String, File> tileFiles;
 
     //for each image, the image is expected to hold a certain number of 128x128 pixel tiles
     //note, when divided by 128, both of these values should return an ODD number, as the center
     //tile in the dynmap should be in the exact center of each tile
     private final int tilesPerSide;
     private final boolean saveRenderCameraLocations;
+    private final boolean disableRendering;
 
     public StaticMap(DynmapCore core, ConfigurationNode configuration) {
         super(core, configuration);
 
-        this.tiles = new HashMap<>();
 
         var actualWorldTileDirectory = configuration.getString("tileDirectory", "");
-        this.saveRenderCameraLocations = configuration.getBoolean("saveRenderCameraLocations", true);
+        var cacheSize = configuration.getInteger("cacheSize", 9);
+
         if (actualWorldTileDirectory.trim().isEmpty()) {
             Bukkit.getLogger().severe("No tile directory specified. Please check all maps that use a static map configuration an make sure 'tileDirectory is specified!'");
         }
 
-
-        this.tileDirectory = new File(StaticMapPlugin.getPlugin(StaticMapPlugin.class).getDataFolder() + File.separator + actualWorldTileDirectory);
-
-        this.tilesPerSide = configuration.getInteger("tilesPerSide", 9);
-        if (tilesPerSide % 2 == 0) {
-            throw new RuntimeException("The tilesPerSide value must be an odd number. The map this is used on will render as transparent.");
+        if (cacheSize < 1) {
+            Bukkit.getLogger().warning("The cacheSize value must be at least 1. Cache size defaulting to 9.");
         }
 
-        if (tilesPerSide < 3)
-            throw new RuntimeException("The tilesPerSide value must be at least 3. The map this is used on will render as transparent.");
+        this.tileDirectory = new File(StaticMapPlugin.getPlugin(StaticMapPlugin.class).getDataFolder() + File.separator + actualWorldTileDirectory);
+        this.saveRenderCameraLocations = configuration.getBoolean("saveRenderCameraLocations", true);
+        this.disableRendering = configuration.getBoolean("disableRendering", false);
+        this.tilesPerSide = configuration.getInteger("tilesPerSide", 9);
+        this.tileCache = new LRULinkedHashMap<>(cacheSize);
+        this.tileFiles = new HashMap<>();
+
+        if (disableRendering) {
+            Bukkit.getLogger().warning("Rendering of the static map is disabled for this world. The map will not render any new tiles (it will leave the existing tiles unchanged)");
+            return;
+        }
 
         if (!tileDirectory.exists()) {
             tileDirectory.mkdirs();
             Bukkit.getLogger().warning("The tile directory \"" + tileDirectory.getAbsolutePath() + "\" was now created. It has no tiles- the map this is used on will render as transparent.");
-        } else {
-            Bukkit.getLogger().info("Loading tiles from " + tileDirectory.getAbsolutePath());
-            for (var file : Objects.requireNonNull(tileDirectory.listFiles())) {
-                try {
-                    var fileName = file.getName();
-                    if (!fileName.endsWith(".png")) continue;
-                    var split = fileName.split("_");
-                    if (split.length != 2) continue;
-                    var x = Integer.parseInt(split[0]);
-                    var y = Integer.parseInt(split[1].substring(0, split[1].length() - 4));
-                    Bukkit.getLogger().info("Loading tile " + x + "_" + y + ".png");
-                    var loadedImage = ImageIO.read(file);
-                    var intArgbImage = new BufferedImage(loadedImage.getWidth(), loadedImage.getHeight(), BufferedImage.TYPE_INT_ARGB);
+            return;
+        }
 
-                    intArgbImage.getGraphics().drawImage(loadedImage, 0, 0, null);
-                    tiles.put(x + "_" + y, intArgbImage);
-                } catch (IOException e) {
-                    Bukkit.getLogger().warning("An error occurred while loading the tile " + file.getName() + " for the static map. The tile will render as transparent.");
-                }
-            }
+        if (tilesPerSide % 2 == 0 || tilesPerSide < 3 ) {
+            Bukkit.getLogger().warning("The tilesPerSide value must be an odd number and greater than or equal to 3. The map this is used on will render as transparent.");
+            return;
+        }
+
+        Bukkit.getLogger().info("Loading tiles from " + tileDirectory.getAbsolutePath());
+        for (var file : Objects.requireNonNull(tileDirectory.listFiles())) {
+            var fileName = file.getName();
+            if (!fileName.endsWith(".png")) continue;
+            var split = fileName.split("_");
+            if (split.length != 2) continue;
+            var x = Integer.parseInt(split[0]);
+            var y = Integer.parseInt(split[1].substring(0, split[1].length() - 4));
+
+            tileFiles.put(x + "_" + y, file);
         }
     }
 
@@ -128,6 +133,28 @@ public class StaticMap extends HDMap {
         return getMapsSharingRender(w).stream().map(MapType::getName).toList();
     }
 
+    private BufferedImage findCachedTile(String tileKey) {
+        if (tileCache.containsKey(tileKey)) {
+            return tileCache.get(tileKey);
+        }
+
+        if (tileFiles.containsKey(tileKey)) {
+            try {
+                Bukkit.getLogger().info("Loading tile " + tileKey + ".png");
+                var loadedImage = ImageIO.read(tileFiles.get(tileKey));
+                var intArgbImage = new BufferedImage(loadedImage.getWidth(), loadedImage.getHeight(), BufferedImage.TYPE_INT_ARGB);
+
+                intArgbImage.getGraphics().drawImage(loadedImage, 0, 0, null);
+                tileCache.put(tileKey, intArgbImage);
+                return intArgbImage;
+            } catch (IOException e) {
+                Bukkit.getLogger().warning("An error occurred while loading the tile " + tileKey + ".png for the static map. The tile will render as transparent.");
+            }
+        }
+
+        return null;
+    }
+
     /**
      * Gets the tile at the given x and y dynmap tile coordinates.
      * @param x The x dynmap tile coordinate.
@@ -139,12 +166,20 @@ public class StaticMap extends HDMap {
         int tileY = Math.round((y * 1.0f) / tilesPerSide);
         var tileKey = tileX + "_" + tileY;
 
-        var tileImage = tiles.get(tileKey);
+        var tileImage = findCachedTile(tileKey);
 
         if (tileImage == null) {
             return TRANSPARENT;
         }
         return getSubTile(tileImage, x, y, tilesPerSide);
+    }
+
+    /**
+     * Determine if rendering is disabled for this map or not.
+     * @return True if it is disabled, false otherwise.
+     */
+    public boolean isRenderingDisabled() {
+        return disableRendering;
     }
 
     /**
@@ -264,18 +299,6 @@ public class StaticMap extends HDMap {
         Vector3D v = new Vector3D(xPos * (1 << zoomoutLevels) * 64 / scale,
                 yPos * (1 << zoomoutLevels) * 64 / scale, 65);
         transform.transform(v);
-
-//        return String.format("""
-//                camera {
-//                  projection: parallel
-//                  position: x:%s y:%s z:%s
-//                  view: yaw:%s pitch:%s roll:0
-//                  fov: %s
-//                  dof: infinity
-//                  res: width:%s height:%s
-//                  nameThis: %s_%s.png
-//                }
-//                """, v.x, v.y, v.z, azimuth - 90, inclination - 90, (128 / scale) * tilesWide, 128 * tilesWide, 128 * tilesWide, x, y);
 
         return String.format("""
                 {

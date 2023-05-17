@@ -37,26 +37,21 @@ public class StaticMapTile extends HDMapTile {
                         && ((StaticMap) m).getBoostZoom() == boostzoom)
                 .findFirst().orElse(null);
         if (map == null) return false;
+        if (map.isRenderingDisabled()) return false;
+
         MapTypeState state = world.getMapState(map);
         if (state != null) state.validateTile(tx, ty);
 
         if (map.isSaveRenderCameraLocations()) {
-            var cameraFile = new File(map.getTileDirectory().getAbsolutePath() + "\\cameras.txt");
-            if (!cameraFile.exists()) {
+            if (tx % map.getTilesPerSide() == 0 && ty % map.getTilesPerSide() == 0) {
                 try {
-                    cameraFile.createNewFile();
-
+                    var cameraFile = new File(map.getTileDirectory().getAbsolutePath() + File.separator + "cameras.txt");
+                    if (!cameraFile.exists()) cameraFile.createNewFile();
+                    Bukkit.getLogger().info("Writing camera settings to file for " + tx + ", " + ty);
+                    Files.write(cameraFile.toPath(), StaticMap.getCameraSettingsFor(tx, ty, map.getMapZoomOutLevels(), map.getTilesPerSide(), (IsoHDPerspective) perspective).getBytes(), StandardOpenOption.APPEND);
                 } catch (IOException e) {
                     throw new RuntimeException(e);
                 }
-            }
-            try {
-                if (tx % map.getTilesPerSide() == 0 && ty % map.getTilesPerSide() == 0) {
-                    Bukkit.getLogger().info("Writing camera settings to file for " + tx + ", " + ty);
-                    Files.write(cameraFile.toPath(), StaticMap.getCameraSettingsFor(tx, ty, map.getMapZoomOutLevels(), map.getTilesPerSide(), (IsoHDPerspective) perspective).getBytes(), StandardOpenOption.APPEND);
-                }
-            } catch (IOException e) {
-                throw new RuntimeException(e);
             }
             return false;
         }

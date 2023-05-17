@@ -15,13 +15,15 @@ Your dynmap world configuration should look like this example below:
   tileDirectory: "/v054" 
   tilesPerSide: 33
   saveRenderCameraLocations: false
+  cacheSize: 9
 ```
 
 - The class should be set to `com.njdaeger.staticmap.StaticMap`
 - `tileDirectory` is where all tiles for this map are pulled from. This is within the StaticMap folder in /plugins. Above example has the tiles stored in `/plugins/StaticMap/v054`
 - `tilesPerSide` is the square root of the number of dynmap tiles packed in one image in the tile directory. The above setting has it set to 33. This means that there are 33x33 dynmap tiles (that are 128px x 128px in resolution each) in each image in the tile directory. So one image in the tile directory is 4224px x 4224px in resolution. (NOTE: This __NEEDS__ to be set to an odd number greater than or equal to 3)
 - `saveRenderCameraLocations` is whether or not to save the camera locations of the renders to a cameras.txt file in the specified tileDirectory. This is designed to output camera positions for chunky renders. If not defined, it is true by default. Nothing will render if this is true.
-
+- `cacheSize` is the number of tiles to cache in memory. This is used to speed up the rendering process but can tax the server ram if it is set too high when the tilesPerSide value is also high. General rule of thumb is if your tilesPerSide is less than 9, 16-25 is a good value to set, otherwise, higher numbers I recommend doing about 9. For VERY large images, you can set this to 1, which is the minimum value.
+- `disableRendering` setting to stop the task of loading tiles into memory, and will ignore all tile renders for the map. When this is true, all tiles from the larger images are assumed to have been loaded into the dynmap.
 I recommend having `tilesPerSide` set to something high like 33 or higher. Higher numbers mean less renders you have to do manually, as more area is covered per large tile.
 
 ## Usage
