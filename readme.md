@@ -34,14 +34,37 @@ Once you have your camera locations, you can use the information in those to ren
 ### Camera location usage
 
 Your camera locations will appear like this in your cameras.txt file:
-```
-camera {
-  projection: parallel
-  position: x:73.95156239096093 y:65.00000000000003 z:62.637853891976164
-  view: yaw:135.0 pitch:-60.0 roll:0
-  fov: 1040.0
-  dof infinity
-  res: width:8320 height:8320
-  nameThis: 0_0.png
+```json
+{
+  "width": 1152,
+  "height": 1152,
+  "camera": {
+    "position": {
+      "x": 99.99,
+      "y": 99.99,
+      "z": 99.99
+    },
+    "orientation": {
+      "roll": 0.0,
+      "pitch": -60,
+      "yaw": 30
+    },
+    "projectionMode": "PARALLEL",
+    "fov": 144,
+    "dof": "Infinity"
+  },
+  "name": "0_0.png"
 }
 ```
+
+The above settings are the settings you will need to set in chunky in order to begin rendering tiles.
+
+In the above case:
+* The canvas width and height should be set to 1152px x 1152px.
+* The camera position should be set to 99.99, 99.99, 99.99.
+* The camera orientation should be set to roll: 0, pitch: -60, yaw: 30.
+* The camera projection mode should be set to PARALLEL.
+* The camera fov should be set to 144.
+* The camera dof should be set to Infinity.
+
+The resulting image should be saved as 0_0.png and then it should be put in the tile directory specified in the world's configuration file above.
